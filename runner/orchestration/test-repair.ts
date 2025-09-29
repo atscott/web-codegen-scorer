@@ -7,11 +7,12 @@ import {
   RootPromptDefinition,
 } from '../shared-interfaces.js';
 import {Environment} from '../configuration/environment.js';
-import {repairCodeWithAI} from './codegen.js';
 import {writeResponseFiles} from './file-system.js';
-import {runBuild} from './build-worker.js';
 import {ProgressLogger} from '../progress/progress-logger.js';
 import {EvalID, Gateway} from './gateway.js';
+import {runTest} from './test-worker.js';
+import {repairCodeWithAI} from './codegen.js';
+import {BuildResultStatus} from '../workers/builder/builder-types.js';
 import {mergeRepairFiles} from './repair.js';
 
 /**
@@ -31,14 +32,14 @@ import {mergeRepairFiles} from './repair.js';
  * @param attempts The current attempt number.
  * @returns A promise that resolves to the new BuildResult.
  */
-export async function repairAndBuild(
+export async function repairAndTest(
   evalID: EvalID,
   gateway: Gateway<Environment>,
   model: string,
   env: Environment,
   rootPromptDef: RootPromptDefinition,
   directory: string,
-  previousAttemptFiles: LlmResponseFile[],
+  finalOutputFiles: LlmResponseFile[],
   errorMessage: string,
   errorContext: string,
   contextFiles: LlmContextFile[],
@@ -49,12 +50,12 @@ export async function repairAndBuild(
 ): Promise<AttemptDetails> {
   const repairResponse = await repairCodeWithAI(
     evalID,
-    gateway.repairBuild.bind(gateway),
+    gateway.repairTest.bind(gateway),
     model,
     env,
     rootPromptDef,
     directory,
-    previousAttemptFiles,
+    finalOutputFiles,
     errorMessage,
     errorContext,
     contextFiles,
@@ -66,7 +67,7 @@ export async function repairAndBuild(
     evalID,
     gateway,
     repairResponse,
-    previousAttemptFiles,
+    finalOutputFiles,
     env,
     rootPromptDef,
     directory,
@@ -85,7 +86,7 @@ async function handleRepairResponse(
   evalID: EvalID,
   gateway: Gateway<Environment>,
   repairResponse: LlmResponse,
-  previousAttemptFiles: LlmResponseFile[],
+  finalOutputFiles: LlmResponseFile[],
   env: Environment,
   rootPromptDef: RootPromptDefinition,
   directory: string,
@@ -104,15 +105,10 @@ async function handleRepairResponse(
     // Stop trying to repair if AI can't suggest a fix (API request fails)
     throw new Error(`Repair request failed: ${repairResponse.errors.join('\n')}`);
   }
+  mergeRepairFiles(repairResponse.outputFiles, finalOutputFiles);
+  writeResponseFiles(directory, finalOutputFiles, env, rootPromptDef.name);
 
-  // Clone the previous files because `mergeRepairFiles` mutates the attempt files.
-  // We don't want to change files of a previous attempt.
-  const newAttemptFiles = previousAttemptFiles.map(f => ({...f}));
-
-  mergeRepairFiles(repairResponse.outputFiles, newAttemptFiles);
-  writeResponseFiles(directory, newAttemptFiles, env, rootPromptDef.name);
-
-  const buildResult = await runBuild(
+  const testResult = await runTest(
     evalID,
     gateway,
     directory,
@@ -124,10 +120,16 @@ async function handleRepairResponse(
   );
 
   return {
-    outputFiles: newAttemptFiles,
+    // Log the `outputFiles` from the repair response specifically, because
+    // we want a snapshot after the current API call, not the full file set.
+    outputFiles: repairResponse.outputFiles,
     usage: repairResponse.usage,
     reasoning: repairResponse.reasoning,
-    buildResult,
+    buildResult: {
+      status: BuildResultStatus.SUCCESS,
+      message: '',
+    },
+    testResult,
     serveTestingResult: null,
     attempt: attempts,
   };

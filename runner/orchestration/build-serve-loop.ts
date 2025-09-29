@@ -2,13 +2,23 @@ import PQueue from 'p-queue';
 import {LlmGenerateFilesResponse} from '../codegen/llm-runner.js';
 import {BuildResultStatus} from '../workers/builder/builder-types.js';
 import {Environment} from '../configuration/environment.js';
-import {AttemptDetails, LlmContextFile, RootPromptDefinition} from '../shared-interfaces.js';
-import {DEFAULT_MAX_REPAIR_ATTEMPTS} from '../configuration/constants.js';
+import {
+  AttemptDetails,
+  LlmContextFile,
+  RootPromptDefinition,
+  TestResult,
+} from '../shared-interfaces.js';
+import {
+  DEFAULT_MAX_REPAIR_ATTEMPTS,
+  DEFAULT_MAX_TEST_REPAIR_ATTEMPTS,
+} from '../configuration/constants.js';
 import {ProgressLogger} from '../progress/progress-logger.js';
 import {runBuild} from './build-worker.js';
 import {repairAndBuild} from './build-repair.js';
 import {EvalID, Gateway} from './gateway.js';
 import {serveAndTestApp} from './serve-testing-worker.js';
+import {runTest} from './test-worker.js';
+import {repairAndTest} from './test-repair.js';
 import {BrowserAgentTaskInput} from '../testing/browser-agent/models.js';
 
 /**
@@ -30,7 +40,7 @@ import {BrowserAgentTaskInput} from '../testing/browser-agent/models.js';
  * @param abortSignal Signal to fire when the build should be aborted.
  * @param workerConcurrencyQueue Concurrency queue for controlling parallelism of worker invocations (as they are more expensive than LLM calls).
  */
-export async function attemptBuild(
+export async function attemptBuildAndTest(
   evalID: EvalID,
   gateway: Gateway<Environment>,
   model: string,
@@ -202,11 +212,65 @@ export async function attemptBuild(
     }
   }
 
+  // Run tests if test command is configured and build was successful
+  let testResult: TestResult | null = null;
+  let testRepairAttempts = 0;
+
+  if (lastAttempt.buildResult.status === BuildResultStatus.SUCCESS && 'testCommand' in env) {
+    testResult = await runTest(
+      evalID,
+      gateway,
+      directory,
+      env,
+      rootPromptDef,
+      abortSignal,
+      workerConcurrencyQueue,
+      progress,
+    );
+
+    const maxTestRepairAttempts = gateway.shouldRetryFailedTests(evalID)
+      ? DEFAULT_MAX_TEST_REPAIR_ATTEMPTS
+      : 0;
+
+    lastAttempt.testResult = testResult;
+
+    while (!testResult.passed && testRepairAttempts < maxTestRepairAttempts) {
+      testRepairAttempts++;
+      progress.log(
+        rootPromptDef,
+        'test',
+        `Trying to repair app tests (attempt #${testRepairAttempts + 1})`,
+      );
+
+      const attempt = await repairAndTest(
+        evalID,
+        gateway,
+        model,
+        env,
+        rootPromptDef,
+        directory,
+        lastAttempt.outputFiles,
+        testResult.output,
+        'The tests failed. Attempt to fix them. There are the following test errors:',
+        contextFiles,
+        abortSignal,
+        workerConcurrencyQueue,
+        testRepairAttempts,
+        progress,
+      );
+      attemptDetails.push(attempt);
+      lastAttempt = attempt;
+      testResult = lastAttempt.testResult!;
+    }
+  }
+
   return {
     buildResult: lastAttempt.buildResult,
     serveTestingResult: lastAttempt.serveTestingResult,
     outputFiles: lastAttempt.outputFiles,
     repairAttempts,
     axeRepairAttempts,
+    testResult,
+    testRepairAttempts,
   };
 }

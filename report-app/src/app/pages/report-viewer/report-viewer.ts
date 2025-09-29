@@ -23,6 +23,7 @@ import {
   LlmResponseFile,
   RunInfo,
   RunSummaryBuilds,
+  RunSummaryTests,
   RuntimeStats,
   ScoreBucket,
   SkippedIndividualAssessment,
@@ -260,6 +261,31 @@ export class ReportViewer {
         label: 'Failed',
         color: ScoreCssVariable.poor,
         value: builds.failedBuilds,
+      },
+    ];
+  }
+
+  protected testsAsGraphData(tests: RunSummaryTests): StackedBarChartData {
+    return [
+      {
+        label: 'Passed',
+        color: ScoreCssVariable.excellent,
+        value: tests.successfulInitialTests,
+      },
+      {
+        label: 'Passed after repair',
+        color: ScoreCssVariable.great,
+        value: tests.successfulTestsAfterRepair,
+      },
+      {
+        label: 'Failed',
+        color: ScoreCssVariable.poor,
+        value: tests.failedTests,
+      },
+      {
+        label: 'No tests run',
+        color: ScoreCssVariable.neutral,
+        value: tests.noTestsRun,
       },
     ];
   }

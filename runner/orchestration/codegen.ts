@@ -88,7 +88,7 @@ export async function generateCodeWithAI(
  */
 export async function repairCodeWithAI(
   evalID: EvalID,
-  gateway: Gateway<Environment>,
+  repairer: Gateway<Environment>['repairBuild'] | Gateway<Environment>['repairTest'],
   model: string,
   env: Environment,
   promptDef: RootPromptDefinition,
@@ -123,7 +123,7 @@ export async function repairCodeWithAI(
 
   progress.log(promptDef, 'codegen', 'Repairing code with AI');
 
-  const response = await gateway.repairBuild(
+  const response = await repairer(
     evalID,
     context,
     model,

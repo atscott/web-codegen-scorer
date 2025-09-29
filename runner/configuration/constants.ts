@@ -26,6 +26,12 @@ export const LLM_OUTPUT_DIR = join(rootDir, 'llm-output');
  */
 export const DEFAULT_MAX_REPAIR_ATTEMPTS = 1;
 
+/**
+ * Number of times we'll try to ask LLM to repair a test failure,
+ * providing the test output and the code that causes the problem.
+ */
+export const DEFAULT_MAX_TEST_REPAIR_ATTEMPTS = 1;
+
 /** Name of the folder where we store all generated reports */
 export const REPORTS_ROOT_DIR = join(rootDir, 'reports');
 

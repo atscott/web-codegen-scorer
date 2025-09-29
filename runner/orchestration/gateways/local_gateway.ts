@@ -10,6 +10,7 @@ import {
   LlmContextFile,
   LlmResponse,
   LlmResponseFile,
+  TestResult,
 } from '../../shared-interfaces.js';
 import {generateCodeWithAI} from '../codegen.js';
 import {EvalID, Gateway} from '../gateway.js';
@@ -40,6 +41,18 @@ export class LocalGateway implements Gateway<LocalEnvironment> {
   }
 
   async repairBuild(
+    _id: EvalID,
+    requestCtx: LlmGenerateFilesContext,
+    model: string,
+    errorMessage: string,
+    appFiles: LlmResponseFile[],
+    contextFiles: LlmContextFile[],
+    abortSignal: AbortSignal,
+  ): Promise<LlmResponse> {
+    return await generateCodeWithAI(this.llm, model, requestCtx, contextFiles, abortSignal);
+  }
+
+  async repairTest(
     _id: EvalID,
     requestCtx: LlmGenerateFilesContext,
     model: string,
@@ -88,6 +101,43 @@ export class LocalGateway implements Gateway<LocalEnvironment> {
     );
   }
 
+  tryTest(
+    _id: EvalID,
+    env: LocalEnvironment,
+    appDirectoryPath: string,
+    rootPromptDef: RootPromptDefinition,
+    workerConcurrencyQueue: PQueue,
+    abortSignal: AbortSignal,
+    progress: ProgressLogger,
+  ): Promise<TestResult> {
+    const testParams = {
+      directory: appDirectoryPath,
+      appName: rootPromptDef.name,
+      testCommand: env.testCommand,
+    };
+
+    return workerConcurrencyQueue.add(
+      () =>
+        new Promise<TestResult>((resolve, reject) => {
+          const child: ChildProcess = fork(
+            path.resolve(import.meta.dirname, '../../workers/test/worker.js'),
+            {signal: abortSignal},
+          );
+          child.send(testParams);
+
+          child.on('message', async (result: any) => {
+            await killChildProcessGracefully(child);
+            resolve(result.payload);
+          });
+          child.on('error', async err => {
+            await killChildProcessGracefully(child);
+            reject(err);
+          });
+        }),
+      {throwOnTimeout: true},
+    );
+  }
+
   async serveBuild<T>(
     _id: EvalID,
     env: LocalEnvironment,
@@ -106,6 +156,10 @@ export class LocalGateway implements Gateway<LocalEnvironment> {
   }
 
   shouldRetryFailedBuilds(): boolean {
+    return this.llm.hasBuiltInRepairLoop === false;
+  }
+
+  shouldRetryFailedTests(): boolean {
     return this.llm.hasBuiltInRepairLoop === false;
   }
 

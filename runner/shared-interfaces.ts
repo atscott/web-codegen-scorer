@@ -220,6 +220,10 @@ export interface AttemptDetails {
   /** LLM reasoning messages for generating these files. */
   // Note: May not be set in older reports.
   reasoning?: string;
+  /** Result of running tests for this attempt. */
+  testResult?: TestResult;
+  /** The number of repair attempts made for tests in this attempt. */
+  testRepairAttempts?: number;
 }
 
 /** Statistics related to the build process of the generated applications. */
@@ -232,6 +236,18 @@ export interface RunSummaryBuilds {
   failedBuilds: number;
   /** Distribution of error types for failed builds. */
   errorDistribution?: Partial<Record<BuildErrorType, number>>;
+}
+
+/** Statistics related to the test process of the generated applications. */
+export interface RunSummaryTests {
+  /** The number of applications that had tests run and all tests passed on the first attempt. */
+  successfulInitialTests: number;
+  /** The number of applications that had tests run and all tests passed after repair attempts. */
+  successfulTestsAfterRepair: number;
+  /** The number of applications that had tests run but tests failed even after repair attempts. */
+  failedTests: number;
+  /** The number of applications that did not have tests run (no test command configured). */
+  noTestsRun: number;
 }
 
 /** Buckets into which scores can be categorized. */
@@ -268,6 +284,8 @@ export interface AggregatedRunStats {
   buckets: ScoreBucket[];
   /** Runtime stats. Not present for reports that didn't request runtime error collection. */
   runtime?: RuntimeStats;
+  /** Test stats. Not present for reports that didn't run tests or older reports. */
+  tests?: RunSummaryTests;
 
   accessibility?: {
     appsWithErrors: number;
@@ -416,6 +434,10 @@ export interface AssessmentResult {
   axeRepairAttempts: number;
   /** Tool requests logs (e.g. MCP requests and responses). */
   toolLogs?: ToolLogEntry[];
+  /** Result of running unit tests. */
+  testResult: TestResult | null;
+  /** Number of repair attempts for tests. */
+  testRepairAttempts?: number;
 }
 
 /**
@@ -487,4 +509,10 @@ export interface RunGroup {
   };
   /** Runner used to generate code for the runs in the group. */
   runner?: CodegenRunnerInfo;
+}
+
+/** Result of running tests. */
+export interface TestResult {
+  passed: boolean;
+  output: string;
 }

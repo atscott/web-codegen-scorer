@@ -30,11 +30,12 @@ import {
   RunDetails,
   RunInfo,
   RunSummary,
+  TestResult,
   Usage,
 } from '../shared-interfaces.js';
 import {BrowserAgentTaskInput} from '../testing/browser-agent/models.js';
 import {callWithTimeout} from '../utils/timeout.js';
-import {attemptBuild} from './build-serve-loop.js';
+import {attemptBuildAndTest} from './build-serve-loop.js';
 import {createLlmResponseTokenUsageMessage} from './codegen.js';
 import {generateUserJourneysForApp} from './user-journeys.js';
 import {resolveContextFiles, setupProjectStructure, writeResponseFiles} from './file-system.js';
@@ -51,6 +52,7 @@ import {executeCommand} from '../utils/exec.js';
 import {EvalID, Gateway} from './gateway.js';
 import {LocalEnvironment} from '../configuration/environment-local.js';
 import {getRunnerByName, RunnerName} from '../codegen/runner-creation.js';
+import {BuildResultStatus} from '../workers/builder/builder-types.js';
 
 /**
  * Orchestrates the entire assessment process for each prompt defined in the `prompts` array.
@@ -59,7 +61,8 @@ import {getRunnerByName, RunnerName} from '../codegen/runner-creation.js';
  * 1. Makes a request to Gemini to generate code.
  * 2. Attempts to build it in a template Angular project.
  * 3. If the build fails, it makes a number of "fix it" Gemini requests.
- * 4. Runs other validations and computes a score for generated output.
+ * 4. If configured, runs unit tests and attempts to repair test failures.
+ * 5. Runs other validations and computes a score for generated output.
  *
  * @returns A Promise that resolves to an array of AssessmentResult objects,
  *          each containing the prompt, generated code, and final validation status.
@@ -417,7 +420,7 @@ async function startEvaluationTask(
 
     // Try to build the files in the root prompt directory.
     // This will also attempt to fix issues with the generated code.
-    const attempt = await attemptBuild(
+    const attempt = await attemptBuildAndTest(
       evalID,
       gateway,
       model,
@@ -455,6 +458,8 @@ async function startEvaluationTask(
       abortSignal,
       progress,
       autoraterModel,
+      attempt.testResult,
+      attempt.testRepairAttempts,
     );
 
     results.push({
@@ -472,6 +477,8 @@ async function startEvaluationTask(
       userJourneys: userJourneys,
       axeRepairAttempts: attempt.axeRepairAttempts,
       toolLogs,
+      testResult: attempt.testResult,
+      testRepairAttempts: attempt.testRepairAttempts,
     } satisfies AssessmentResult);
   }
 
